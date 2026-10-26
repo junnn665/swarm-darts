@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+  <title>SWARM DARTS | 中濱Games</title>
+  <meta name="description" content="ダーツの群れになってボードへ突っ込め！ゲートで本数を増やして、一斉に突き刺してスコアを稼ぐ3Dゲーム。">
+  <meta name="theme-color" content="#0b1026">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- ホーム -->
+  <div id="home" class="overlay">
+    <div class="brand"><span class="brand-mark">◆</span>中濱Games</div>
+    <h1 class="title"><span>SWARM</span><span>DARTS</span></h1>
+    <p class="sub">ダーツの群れで、ボードを埋めつくせ！</p>
+    <button id="btnStart" class="btn primary big">スタート</button>
+    <div class="homeInfo">
+      <div>STAGE<b id="homeStage">1</b></div>
+      <div>ベスト<b id="homeBest">0</b></div>
+    </div>
+    <button id="btnReset" class="link hidden">ステージ1からやり直す</button>
+    <div class="howto">
+      <p>👆 左右スワイプで<b class="blue">青いゲート</b>をくぐって本数アップ</p>
+      <p>🟥 赤いブロックに当たると本数が減る</p>
+      <p>🎯 最後は上下左右で<b>ボードのど真ん中</b>を狙え</p>
+    </div>
+    <button id="btnSound" class="iconbtn" aria-label="サウンド切り替え">🔊</button>
+    <footer>© 2026 中濱Games</footer>
+  </div>
+
+  <!-- プレイ中 -->
+  <div id="hud" class="hidden">
+    <div class="hudTop">
+      <div id="hudStage">STAGE 1</div>
+      <div class="bar"><i id="hudBar"></i></div>
+      <div id="hudTarget">目標 0</div>
+    </div>
+    <div id="countTag">1</div>
+    <div id="aimHint" class="hidden">🎯 ど真ん中を狙え！</div>
+  </div>
+
+  <!-- リザルト -->
+  <div id="result" class="overlay hidden">
+    <div class="card">
+      <div id="resTitle">STAGE 1 CLEAR!</div>
+      <div class="label">スコア</div>
+      <div id="resScore">0</div>
+      <div id="resTarget">目標 0</div>
+      <div id="resBadge" class="badge hidden">🏆 100億点 突破！</div>
+      <div class="stats">
+        <div><span>本数</span><b id="resCount">0</b></div>
+        <div><span>平均点</span><b id="resAvg">0</b></div>
+        <div><span>ブル率</span><b id="resBull">0%</b></div>
+      </div>
+      <button id="btnNext" class="btn primary">次のステージへ</button>
+      <div class="row">
+        <button id="btnShare" class="btn ghost">Xでシェア</button>
+        <button id="btnHome" class="btn ghost">ホーム</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="fx"></div>
+  <div id="flash"></div>
+  <div id="loading">読み込み中…</div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
