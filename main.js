@@ -14,7 +14,8 @@ const BOARD_R = 6;          // ボードの得点エリア半径
 const BOARD_Y = 1.2;
 const MAXV = 260;           // 実際に描画するダーツの最大本数
 const MAXDEBRIS = 140;
-const SPACING = 0.13;
+const LAYOUT = 0.27;        // 群れ（球状）の密度
+const TRACK_Y = -1.6;       // コース床の高さ
 const RUN_SPEED = 20;
 const APPROACH_SPEED = 13;
 const APPROACH_LEN = 34;
@@ -82,10 +83,24 @@ const sfx = {
 const canvas = $('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b1026);
-scene.fog = new THREE.Fog(0x0b1026, 45, 170);
+scene.background = (() => {
+  const c = document.createElement('canvas'); c.width = 4; c.height = 512;
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 512);
+  grd.addColorStop(0, '#04061a'); grd.addColorStop(0.45, '#151a4a'); grd.addColorStop(0.62, '#3a1f66');
+  grd.addColorStop(0.72, '#1a1748'); grd.addColorStop(1, '#070a1e');
+  g.fillStyle = grd; g.fillRect(0, 0, 4, 512);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+scene.fog = new THREE.Fog(0x1a1748, 40, 190);
+let fovKick = 0, baseFov = 62, shake = 0;
 
 const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 500);
 camera.position.set(0, 3.5, 9);
@@ -97,16 +112,25 @@ function resize() {
   // 縦長スマホでもコースの左右が見えるように視野角を調整
   const base = Math.tan(THREE.MathUtils.degToRad(31));
   const need = 0.42 / camera.aspect;
-  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.max(base, need)));
+  baseFov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.max(base, need)));
+  camera.fov = baseFov + fovKick;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
 resize();
 
-scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x2a1640, 1.15));
-const sun = new THREE.DirectionalLight(0xffffff, 1.7);
-sun.position.set(4, 10, 6);
-scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x2a1640, 0.85));
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.6);
+sun.position.set(5, 12, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -11, right: 11, top: 11, bottom: -11, near: 1, far: 60 });
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+// 輪郭を立たせるリムライト（ピンク / シアン）
+const rimA = new THREE.DirectionalLight(0xff4fa0, 1.4); rimA.position.set(-6, 3, -10); scene.add(rimA);
+const rimB = new THREE.DirectionalLight(0x3fd8ff, 1.1); rimB.position.set(7, -2, -8); scene.add(rimB);
 
 // 星空（カメラに追従）
 const stars = (() => {
@@ -125,10 +149,50 @@ const stars = (() => {
 
 // 床グリッド
 const grid = new THREE.GridHelper(300, 120, 0x4a5cff, 0x1d2a6a);
-grid.position.y = -4;
+grid.position.y = -18;          // はるか下の地面（奥行き感）
 grid.material.transparent = true;
-grid.material.opacity = 0.55;
+grid.material.opacity = 0.4;
 scene.add(grid);
+
+// 空中に浮かぶブロック（左右を流れて奥行きを出す）
+const FB = 80;
+const floaters = new THREE.InstancedMesh(
+  new THREE.BoxGeometry(1, 1, 1),
+  new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.25, emissive: 0x111133 }),
+  FB
+);
+floaters.frustumCulled = false;
+scene.add(floaters);
+const floatData = [];
+const FLOAT_COLORS = [0x3fa9ff, 0xff3d7f, 0xffd23d, 0x7a5cff, 0x2fe0b0, 0x2b3570, 0x2b3570];
+function resetFloater(f, zBase) {
+  const side = Math.random() < 0.5 ? -1 : 1;
+  f.x = side * rand(13, 40); f.y = rand(-15, 13); f.z = zBase - rand(0, 170);
+  f.s = rand(1, 4.8); f.sy = f.s * rand(0.6, 2.8);
+  f.rx = rand(0, 6); f.ry = rand(0, 6); f.w = rand(-0.5, 0.5);
+}
+for (let i = 0; i < FB; i++) {
+  const f = {}; resetFloater(f, 30); floatData.push(f);
+  floaters.setColorAt(i, new THREE.Color(FLOAT_COLORS[i % FLOAT_COLORS.length]));
+}
+
+// はじける3Dパーティクル
+const BMAX = 260;
+const burstMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), new THREE.MeshBasicMaterial({ color: 0xffffff }), BMAX);
+burstMesh.frustumCulled = false;
+burstMesh.setColorAt(0, new THREE.Color(0xffffff));
+burstMesh.count = 0;
+scene.add(burstMesh);
+const bursts = [];
+function burst(x, y, z, color, n = 40, spd = 8, follow = 0) {
+  const c = new THREE.Color(color);
+  for (let i = 0; i < n; i++) {
+    if (bursts.length >= BMAX) bursts.shift();
+    const v = new THREE.Vector3().randomDirection().multiplyScalar(rand(spd * 0.35, spd));
+    v.z -= follow;
+    bursts.push({ p: new THREE.Vector3(x, y, z), v, life: rand(0.5, 1.0), c, r: rand(0, 6) });
+  }
+}
 
 // スピード線
 const LN = 150;
@@ -167,7 +231,7 @@ const dartGeo = (() => {
   const f1 = colored(new THREE.BoxGeometry(0.34, 0.014, 0.24), 0xff3d7f); f1.translate(0, 0, 0.34);
   const f2 = colored(new THREE.BoxGeometry(0.014, 0.34, 0.24), 0x3fa9ff); f2.translate(0, 0, 0.34);
   const g = mergeGeometries([tip, barrel, shaft, f1, f2]);
-  g.scale(0.9, 0.9, 0.9);
+  g.scale(1.05, 1.05, 1.05);
   return g;
 })();
 const dartMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.35, roughness: 0.35 });
@@ -175,6 +239,7 @@ const dartMesh = new THREE.InstancedMesh(dartGeo, dartMat, MAXV + MAXDEBRIS);
 dartMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 dartMesh.frustumCulled = false;
 dartMesh.count = 0;
+dartMesh.castShadow = true;
 scene.add(dartMesh);
 
 // ---------- ダーツボード ----------
@@ -233,18 +298,35 @@ function buildBoard() {
     new THREE.CircleGeometry(BOARD_R * 1.18, 128),
     new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.85 })
   );
+  boardFace.receiveShadow = true;
   board.add(boardFace);
   const back = new THREE.Mesh(
-    new THREE.CylinderGeometry(BOARD_R * 1.24, BOARD_R * 1.24, 0.9, 72),
-    new THREE.MeshStandardMaterial({ color: 0x14141c, roughness: 0.6 })
+    new THREE.CylinderGeometry(BOARD_R * 1.26, BOARD_R * 1.3, 1.8, 72),
+    new THREE.MeshStandardMaterial({ color: 0x1b1b26, roughness: 0.5, metalness: 0.3 })
   );
-  back.rotation.x = Math.PI / 2; back.position.z = -0.46;
+  back.rotation.x = Math.PI / 2; back.position.z = -0.92;
+  back.castShadow = true;
   board.add(back);
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(BOARD_R * 1.24, 0.14, 12, 120),
+  // 盛り上がったワイヤー
+  const wireMat = new THREE.MeshStandardMaterial({ color: 0xdfe4ef, metalness: 0.9, roughness: 0.25 });
+  for (const r of [RING.bullIn, RING.bullOut, RING.triIn, RING.triOut, RING.dblIn, 1]) {
+    const w = new THREE.Mesh(new THREE.TorusGeometry(BOARD_R * r, 0.035, 6, 160), wireMat);
+    w.position.z = 0.03;
+    board.add(w);
+  }
+  // 外周の金属リングと光るリング
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(BOARD_R * 1.24, 0.32, 16, 140),
+    new THREE.MeshStandardMaterial({ color: 0x9aa3c0, metalness: 0.9, roughness: 0.3 })
+  );
+  rim.castShadow = true;
+  board.add(rim);
+  const glow = new THREE.Mesh(
+    new THREE.TorusGeometry(BOARD_R * 1.34, 0.12, 12, 140),
     new THREE.MeshBasicMaterial({ color: 0x3fd8ff })
   );
-  board.add(ring);
+  glow.position.z = -0.6;
+  board.add(glow);
   board.position.y = BOARD_Y;
   scene.add(board);
 }
@@ -280,10 +362,34 @@ const stripeTex = (() => {
 })();
 const obstacleMat = new THREE.MeshStandardMaterial({ map: stripeTex, emissive: 0x551018, roughness: 0.5 });
 obstacleMat.userData.keep = true;
-const postMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x88aaff, emissiveIntensity: 0.6 });
+const postMat = new THREE.MeshStandardMaterial({ color: 0x5a66b8, metalness: 0.6, roughness: 0.3, emissive: 0x1a2266 });
 postMat.userData.keep = true;
 const railMat = new THREE.MeshBasicMaterial({ color: 0x3fd8ff });
 railMat.userData.keep = true;
+const trackTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1c2258'; g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = '#2d3a8a'; g.lineWidth = 3;
+  for (let i = 0; i <= 256; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(256, i); g.stroke(); }
+  g.fillStyle = '#3fd8ff';
+  g.fillRect(124, 20, 8, 90); g.fillRect(124, 148, 8, 90);   // 中央の点線（左右ゲートの境目）
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  return t;
+})();
+const trackMat = new THREE.MeshStandardMaterial({ map: trackTex, roughness: 0.65, metalness: 0.15 });
+trackMat.userData.keep = true;
+const curbMat = new THREE.MeshStandardMaterial({ color: 0x2a3170, roughness: 0.5, metalness: 0.3 });
+curbMat.userData.keep = true;
+const pillarMat = new THREE.MeshStandardMaterial({ color: 0x343d86, roughness: 0.4, metalness: 0.5, emissive: 0x0d1033 });
+pillarMat.userData.keep = true;
+const capMat = new THREE.MeshBasicMaterial({ color: 0xff3d7f });
+capMat.userData.keep = true;
+const gateEdgeGood = new THREE.MeshStandardMaterial({ color: 0x2f8dff, transparent: true, opacity: 0.85, emissive: 0x0a3a8a });
+const gateEdgeBad = new THREE.MeshStandardMaterial({ color: 0xff3d55, transparent: true, opacity: 0.85, emissive: 0x7a0a1e });
 
 function isGood(op) { return op.t === '+' || op.t === '×'; }
 function makeOp(s, good) {
@@ -331,38 +437,58 @@ function makeGatePair(z, L, R) {
   grp.position.z = z;
   const planes = [];
   for (const [op, side] of [[L, -1], [R, 1]]) {
-    const pl = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.0, 3.8),
-      new THREE.MeshBasicMaterial({ map: gateTexture(op), transparent: true, depthWrite: false, side: THREE.DoubleSide })
-    );
-    pl.position.set(side * 1.6, 0.9, 0);
+    const face = new THREE.MeshBasicMaterial({ map: gateTexture(op), transparent: true, depthWrite: false });
+    const edge = (isGood(op) ? gateEdgeGood : gateEdgeBad).clone();
+    const pl = new THREE.Mesh(new THREE.BoxGeometry(2.9, 3.7, 0.3), [edge, edge, edge, edge, face, face]);
+    pl.position.set(side * 1.6, 1.05, 0);
     grp.add(pl); planes.push(pl);
   }
-  for (const x of [-LANE, 0, LANE]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 4.4, 0.18), postMat);
-    post.position.set(x, 0.7, 0);
+  for (const x of [-LANE - 0.25, LANE + 0.25]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.42, 5.1, 0.55), postMat);
+    post.position.set(x, TRACK_Y + 2.55, 0);
+    post.castShadow = true;
     grp.add(post);
   }
-  const top = new THREE.Mesh(new THREE.BoxGeometry(LANE * 2 + 0.2, 0.18, 0.18), postMat);
-  top.position.set(0, 2.9, 0);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(LANE * 2 + 1.0, 0.5, 0.7), postMat);
+  top.position.set(0, TRACK_Y + 5.1, 0);
+  top.castShadow = true;
   grp.add(top);
+  const topGlow = new THREE.Mesh(new THREE.BoxGeometry(LANE * 2 + 1.0, 0.1, 0.1), railMat);
+  topGlow.position.set(0, TRACK_Y + 4.82, 0.36);
+  grp.add(topGlow);
   course.add(grp);
   return { z, L, R, grp, planes, used: false, fade: 0, pick: -1 };
 }
 
 function makeObstacle(z, s) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.6, 0.7), obstacleMat);
-  m.position.set(0, 0.5, z);
+  const parts = [];
+  const drum = new THREE.CylinderGeometry(1.0, 1.0, 1.6, 28);
+  drum.rotateX(Math.PI / 2);
+  parts.push(drum);
+  for (let i = 0; i < 10; i++) {
+    for (const zz of [-0.45, 0.45]) {
+      const a = (i / 10) * Math.PI * 2 + (zz > 0 ? 0.31 : 0);
+      const sp = new THREE.ConeGeometry(0.16, 0.5, 8);
+      sp.rotateZ(a - Math.PI / 2);
+      sp.translate(Math.cos(a) * 1.18, Math.sin(a) * 1.18, zz);
+      parts.push(sp);
+    }
+  }
+  const m = new THREE.Mesh(mergeGeometries(parts), obstacleMat);
+  m.position.set(0, TRACK_Y + 1.25, z);
+  m.castShadow = true;
   course.add(m);
-  return { z, mesh: m, amp: rand(1.6, 2.5), w: rand(1.1, 1.7) + s * 0.08, ph: rand(0, Math.PI * 2), hw: 1.0, done: false };
+  return { z, mesh: m, amp: rand(1.6, 2.4), w: rand(1.1, 1.7) + s * 0.08, ph: rand(0, Math.PI * 2), hw: 1.2, done: false };
 }
 
 function clearCourse() {
   course.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
-    if (o.material && !o.material.userData.keep) {
-      if (o.material.map) o.material.map.dispose();
-      o.material.dispose();
+    const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+    for (const m of mats) {
+      if (m.userData.keep) continue;
+      if (m.map) m.map.dispose();
+      m.dispose();
     }
   });
   course.clear();
@@ -387,13 +513,48 @@ function buildStage(s) {
   approachZ = z + 6;
   boardZ = approachZ - APPROACH_LEN;
   board.position.set(0, BOARD_Y, boardZ);
-  // 左右のレール
-  const len = -boardZ + 20;
-  for (const x of [-LANE - 0.3, LANE + 0.3]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, len), railMat);
-    rail.position.set(x, -1.6, 10 - len / 2);
-    course.add(rail);
+  // 空中に浮かぶコース（ボードの手前で途切れて、そこからダイブ）
+  const startZ = 16, endZ = approachZ - 4;
+  const len = startZ - endZ, midZ = (startZ + endZ) / 2;
+  const W = LANE * 2 + 1.2;
+  trackTex.repeat.set(1, len / 8);
+  const track = new THREE.Mesh(new THREE.BoxGeometry(W, 1.0, len), trackMat);
+  track.position.set(0, TRACK_Y - 0.5, midZ);
+  track.receiveShadow = true;
+  course.add(track);
+  const under = new THREE.Mesh(new THREE.BoxGeometry(W * 0.7, 1.6, len), curbMat);
+  under.position.set(0, TRACK_Y - 1.6, midZ);
+  course.add(under);
+  for (const sx of [-1, 1]) {
+    const curb = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, len), curbMat);
+    curb.position.set(sx * (W / 2 + 0.25), TRACK_Y + 0.0, midZ);
+    curb.castShadow = curb.receiveShadow = true;
+    course.add(curb);
+    const neon = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, len), railMat);
+    neon.position.set(sx * (W / 2 + 0.25), TRACK_Y + 0.4, midZ);
+    course.add(neon);
+    const neonLow = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, len), railMat);
+    neonLow.position.set(sx * (W / 2), TRACK_Y - 1.0, midZ);
+    course.add(neonLow);
   }
+  // コースの縁の柱（くぐり抜けるスピード感）
+  const np = Math.floor(len / 14);
+  const pillars = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.32, 0.4, 9, 12), pillarMat, np * 2);
+  const caps = new THREE.InstancedMesh(new THREE.SphereGeometry(0.45, 14, 10), capMat, np * 2);
+  const mm = new THREE.Matrix4();
+  for (let i = 0; i < np; i++) {
+    for (let k = 0; k < 2; k++) {
+      const x = (k ? 1 : -1) * (W / 2 + 1.3), z = startZ - 7 - i * 14;
+      mm.makeTranslation(x, TRACK_Y + 0.5, z); pillars.setMatrixAt(i * 2 + k, mm);
+      mm.makeTranslation(x, TRACK_Y + 5.2, z); caps.setMatrixAt(i * 2 + k, mm);
+    }
+  }
+  pillars.castShadow = true;
+  course.add(pillars, caps);
+  // 端っこの光るエッジ
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(W + 1, 0.2, 0.2), capMat);
+  lip.position.set(0, TRACK_Y, endZ);
+  course.add(lip);
   // 理想ルートの本数から目標スコアを決める（ちゃんと狙えば届く）
   target = niceFloor(best * 7);
 }
@@ -407,15 +568,17 @@ const S = {
 };
 let best = store.get('sd_best', 0);
 
-function swarmRadius() { return SPACING * Math.sqrt(Math.max(1, S.darts.length)); }
+function swarmRadius() { return LAYOUT * Math.cbrt(Math.max(1, S.darts.length)); }
 
 function syncVisible(withDebris = true) {
   const want = Math.min(MAXV, Math.max(0, Math.floor(S.count)));
   while (S.darts.length < want) {
     const i = S.darts.length;
-    const r = SPACING * Math.sqrt(i);
-    const a = i * 2.39996;
-    S.darts.push({ ox: 0, oy: 0, tx: Math.cos(a) * r, ty: Math.sin(a) * r, oz: rand(-0.3, 0.3), ph: rand(0, 6.28) });
+    // 球の中に均等に詰める（立体的な群れ）
+    const r = LAYOUT * Math.cbrt(i);
+    const yy = 1 - 2 * ((i * 0.618034) % 1);
+    const rr = Math.sqrt(1 - yy * yy), a = i * 2.39996;
+    S.darts.push({ ox: 0, oy: 0, oz: 0, tx: Math.cos(a) * rr * r, ty: yy * r, tz: Math.sin(a) * rr * r * 1.3, ph: rand(0, 6.28) });
   }
   while (S.darts.length > want) {
     const d = S.darts.pop();
@@ -476,7 +639,7 @@ function goHome() {
   S.phase = 'home';
   buildStage(S.stage);
   S.count = 48; S.darts = []; S.debris = []; S.stuck = [];
-  S.x = S.tx = 0; S.y = S.ty = 0.4; S.z = 0;
+  S.x = S.tx = 0; S.y = S.ty = 0.6; S.z = 0;
   syncVisible(false);
   show('home', true); show('hud', false); show('result', false);
   updateHomeInfo();
@@ -533,6 +696,9 @@ function doHit() {
   S.darts = [];
   sfx.thud();
   flash('rgba(255,255,255,0.8)');
+  shake = 0.8;
+  burst(S.x, S.y, boardZ + 0.8, 0xffd23d, 90, 12);
+  burst(S.x, S.y, boardZ + 0.8, 0xff3d7f, 60, 10);
   const c = toScreen(0, BOARD_Y, boardZ);
   const tag = tally.bull / n > 0.4 ? 'BULL!!' : tally.triple / n > 0.3 ? 'TRIPLE!!' : tally.miss / n > 0.6 ? 'うーん…' : 'ドスッ!!';
   popup(tag, 'gold', c.x, c.y);
@@ -599,7 +765,7 @@ $('btnShare').addEventListener('click', () => {
 });
 
 // ---------- メインループ ----------
-const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), eul = new THREE.Euler(), pv = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), eul = new THREE.Euler(), pv = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1), sv = new THREE.Vector3();
 const camTarget = new THREE.Vector3(), lookAt = new THREE.Vector3(), lookCur = new THREE.Vector3(0, 0, -10);
 const countTag = $('countTag');
 const clock = new THREE.Clock();
@@ -625,7 +791,7 @@ function update(dt) {
 
     if (S.phase === 'run') {
       S.tx = clamp(S.tx, -LANE + 0.4, LANE - 0.4);
-      S.ty = 0.4;
+      S.ty = TRACK_Y + 0.5 + swarmRadius();
       // ゲート判定
       for (const g of gates) {
         if (!g.used && prevZ > g.z && S.z <= g.z) {
@@ -633,6 +799,8 @@ function update(dt) {
           const left = S.x < 0;
           const op = left ? g.L : g.R;
           g.pick = left ? 0 : 1;
+          burst(left ? -1.6 : 1.6, 1.0, g.z, isGood(op) ? 0x6cc6ff : 0xff4b5c, 46, 9, 12);
+          if (isGood(op)) fovKick = 9;
           const next = applyOp(op, S.count);
           changeCount(next, op.t + fmtJP(op.v), isGood(op));
         }
@@ -647,6 +815,8 @@ function update(dt) {
             const frac = Math.min(1, overlap / (2 * rad + 0.2)) * 0.7;
             const loss = Math.max(1, Math.ceil(S.count * frac));
             sfx.hitObstacle();
+            shake = 0.5;
+            burst(S.x, S.y, S.z, 0xffd23d, 30, 7, 10);
             changeCount(S.count - loss, '-' + fmtJP(loss), false);
           }
         }
@@ -674,18 +844,18 @@ function update(dt) {
     if (g.used && g.fade < 1) {
       g.fade = Math.min(1, g.fade + dt * 2.5);
       g.planes.forEach((p, i) => {
-        p.material.opacity = 1 - g.fade;
+        p.material.forEach((m) => { m.opacity = (m.map ? 1 : 0.85) * (1 - g.fade); });
         if (i === g.pick) p.scale.setScalar(1 + g.fade * 0.4);
       });
     }
   }
   for (const o of obstacles) {
     o.mesh.position.x = Math.sin(t * o.w + o.ph) * o.amp;
-    o.mesh.rotation.y = Math.sin(t * 2 + o.ph) * 0.3;
+    o.mesh.rotation.z = -o.mesh.position.x / 1.2;   // 転がる
   }
 
   if (S.phase === 'home') {
-    S.z = 0; S.tx = Math.sin(t * 0.7) * 1.2; S.ty = 0.4 + Math.sin(t * 1.1) * 0.3;
+    S.z = 0; S.tx = Math.sin(t * 0.7) * 1.2; S.ty = 0.9 + Math.sin(t * 1.1) * 0.3;
   }
 
   // ダーツのインスタンス更新
@@ -694,7 +864,8 @@ function update(dt) {
   for (const d of S.darts) {
     d.ox += (d.tx - d.ox) * kOff;
     d.oy += (d.ty - d.oy) * kOff;
-    pv.set(S.x + d.ox, S.y + d.oy + Math.sin(t * 6 + d.ph) * 0.03, S.z + d.oz);
+    d.oz += (d.tz - d.oz) * kOff;
+    pv.set(S.x + d.ox, S.y + d.oy + Math.sin(t * 6 + d.ph) * 0.04, S.z + d.oz);
     eul.set(Math.sin(t * 3 + d.ph) * 0.04, Math.cos(t * 3 + d.ph) * 0.04, S.bank + t * 3 + d.ph);
     q.setFromEuler(eul);
     m4.compose(pv, q, one);
@@ -730,18 +901,67 @@ function update(dt) {
     camTarget.set(Math.sin(a) * 7, 1.6 + Math.sin(t * 0.4) * 0.4, Math.cos(a) * 7);
     lookAt.set(0, 3.4, 0);
   } else if (S.phase === 'run' || S.phase === 'dead' || (S.phase === 'result' && !S.result)) {
-    camTarget.set(S.x * 0.55, S.y + 2.8, S.z + 8.5);
-    lookAt.set(S.x * 0.7, S.y + 0.3, S.z - 12);
+    camTarget.set(S.x * 0.5, S.y + 2.0, S.z + 7.0);
+    lookAt.set(S.x * 0.65, S.y + 0.2, S.z - 10);
   } else if (S.phase === 'approach') {
-    camTarget.set(S.x * 0.6, S.y + 1.4, S.z + 9);
+    camTarget.set(S.x * 0.6, S.y + 1.2, S.z + 8);
     lookAt.set(S.x * 0.6, S.y * 0.8 + BOARD_Y * 0.2, S.z - 20);
   } else {
-    camTarget.set(0, BOARD_Y + 0.8, boardZ + 18);
+    // 斜めから回り込んで、刺さったダーツの立体感を見せる
+    const a = Math.min(1, S.timer * 0.5) * 0.55 + 0.2;
+    camTarget.set(Math.sin(a) * 17, BOARD_Y + 3.2, boardZ + Math.cos(a) * 17);
     lookAt.set(0, BOARD_Y, boardZ);
   }
   camera.position.lerp(camTarget, damp(S.phase === 'home' ? 2 : 6, dt));
   lookCur.lerp(lookAt, damp(8, dt));
   camera.lookAt(lookCur);
+  camera.rotateZ(S.bank * 0.3);   // 曲がるときに傾く
+  if (shake > 0) {
+    camera.position.x += rand(-1, 1) * shake * 0.25;
+    camera.position.y += rand(-1, 1) * shake * 0.25;
+    shake = Math.max(0, shake - dt * 2.5);
+  }
+  fovKick += (0 - fovKick) * damp(3, dt);
+  const speedFov = S.phase === 'run' ? 4 : 0;
+  camera.fov = baseFov + fovKick + speedFov;
+  camera.updateProjectionMatrix();
+
+  // 影を落とすライトを群れに追従
+  const fx0 = S.phase === 'hit' || S.phase === 'result' ? 0 : S.x;
+  const fz0 = S.phase === 'hit' || S.phase === 'result' ? boardZ : S.z;
+  sun.position.set(fx0 + 5, 12, fz0 + 6);
+  sun.target.position.set(fx0, 0, fz0);
+
+  // 浮遊ブロック
+  for (let i = 0; i < FB; i++) {
+    const f = floatData[i];
+    if (f.z > camera.position.z + 12) resetFloater(f, camera.position.z - 40);
+    f.ry += f.w * dt;
+    eul.set(f.rx, f.ry, 0); q.setFromEuler(eul);
+    pv.set(f.x, f.y, f.z); sv.set(f.s, f.sy, f.s);
+    m4.compose(pv, q, sv);
+    floaters.setMatrixAt(i, m4);
+  }
+  floaters.instanceMatrix.needsUpdate = true;
+
+  // パーティクル
+  let bn = 0;
+  for (let i = bursts.length - 1; i >= 0; i--) { bursts[i].life -= dt; if (bursts[i].life <= 0) bursts.splice(i, 1); }
+  for (const b of bursts) {
+    b.v.y -= 9 * dt;
+    b.p.addScaledVector(b.v, dt);
+    b.r += dt * 6;
+    eul.set(b.r, b.r * 0.7, 0); q.setFromEuler(eul);
+    const k = Math.min(1, b.life * 2);
+    sv.set(k, k, k);
+    m4.compose(b.p, q, sv);
+    burstMesh.setMatrixAt(bn, m4);
+    burstMesh.setColorAt(bn, b.c);
+    bn++;
+  }
+  burstMesh.count = bn;
+  burstMesh.instanceMatrix.needsUpdate = true;
+  if (burstMesh.instanceColor) burstMesh.instanceColor.needsUpdate = true;
 
   // ボードのゆれ
   if (S.phase === 'hit') {
