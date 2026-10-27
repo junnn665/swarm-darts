@@ -229,3 +229,149 @@ footer {
 .stats span { font-size: 11px; color: var(--muted); font-weight: 800; }
 .stats b { font-size: 17px; font-weight: 900; }
 .row { display: flex; gap: 10px; margin-top: 6px; }
+
+/* ---------- 対戦 ---------- */
+input { user-select: text; -webkit-user-select: text; }
+
+.mpRow { display: flex; gap: 10px; }
+.btn.vs {
+  font-size: 15px; padding: 11px 16px;
+  background: linear-gradient(180deg, #49b4ff, #1f6fe0);
+  box-shadow: 0 4px 0 #134a9c;
+}
+.btn.vs:active { box-shadow: 0 1px 0 #134a9c; transform: translateY(3px); }
+.btn:disabled { opacity: 0.55; }
+.btn.hidden { display: none; }
+
+.overlay.mp {
+  background: rgba(5, 8, 24, 0.72);
+  overflow-y: auto;
+  justify-content: flex-start;
+  padding-top: max(28px, env(safe-area-inset-top));
+}
+.overlay.mp .card { margin: auto 0; }
+.mpTitle { font-weight: 900; font-size: 22px; margin-bottom: 4px; }
+.field {
+  width: 100%; display: flex; flex-direction: column; gap: 4px; text-align: left;
+  font-size: 12px; font-weight: 800; color: var(--muted);
+}
+.field input {
+  font: inherit; font-size: 20px; font-weight: 800; color: #fff;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 12px;
+  padding: 10px 12px; outline: none; width: 100%;
+}
+.field input:focus { border-color: var(--blue); }
+#mpCode { letter-spacing: 0.3em; text-align: center; font-size: 28px; }
+
+.seg { display: flex; gap: 6px; width: 100%; }
+.seg button {
+  flex: 1; font: inherit; font-size: 13px; font-weight: 900; color: #fff;
+  padding: 9px 2px; border-radius: 10px; cursor: pointer;
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2);
+}
+.seg button.on { background: linear-gradient(180deg, #ff5b93, #e0225f); border-color: transparent; }
+.seg button:disabled:not(.on) { opacity: 0.4; }
+.seg button:disabled { cursor: default; }
+
+.mpMsg { margin: 4px 0; min-height: 1em; font-size: 13px; font-weight: 800; color: var(--red); }
+.mpMsg.info { color: var(--muted); }
+
+.tiles { display: flex; gap: 8px; }
+.tile {
+  width: 52px; height: 64px; display: grid; place-items: center;
+  font-size: 38px; font-weight: 900; border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff, #cfe4ff); color: #0b1026;
+  box-shadow: 0 4px 0 #6f8fc7;
+}
+.invite { display: flex; gap: 10px; align-items: center; margin: 6px 0; width: 100%; }
+.qr { width: 104px; height: 104px; flex: none; background: #fff; border-radius: 10px; padding: 4px; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.inviteBtns { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.inviteBtns .btn { font-size: 13px; padding: 10px 8px; }
+
+.plist { list-style: none; margin: 4px 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 5px; }
+.plist li {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.07); border-radius: 10px; padding: 8px 10px;
+  font-weight: 800; font-size: 15px; text-align: left;
+}
+.plist li.me { outline: 2px solid rgba(255,255,255,0.6); }
+.plist .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plist .tag { font-size: 11px; color: var(--gold); }
+.plist .sc { font-weight: 900; }
+.plist .rk { width: 26px; text-align: center; font-weight: 900; font-size: 18px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(255,255,255,0.4); }
+#mpResTitle { font-weight: 900; font-size: 28px; font-style: italic; }
+#mpResTitle.clear { color: var(--gold); }
+#mpResTitle.fail { color: #9fd8ff; }
+
+.stamps { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.stamps button {
+  font: inherit; font-weight: 900; font-size: 15px; color: #fff; cursor: pointer;
+  background: rgba(10,14,40,0.7); border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 999px; padding: 6px 10px;
+}
+.stamps button:active { transform: scale(0.92); }
+#stampBar {
+  position: absolute; right: 10px; left: 10px;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  pointer-events: auto;
+}
+
+#raceRank {
+  position: absolute; left: 10px; top: calc(max(12px, env(safe-area-inset-top)) + 28px);
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px;
+  font-size: 12px; font-weight: 900;
+}
+#raceRank li {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(10,14,40,0.6); border-radius: 8px; padding: 3px 8px;
+  max-width: 180px;
+}
+#raceRank li.me { background: rgba(255,61,127,0.55); }
+#raceRank .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100px; }
+#raceRank .dot { width: 9px; height: 9px; }
+
+#ghostTags { position: absolute; inset: 0; overflow: hidden; }
+.gtag {
+  position: absolute; left: 0; top: 0;
+  padding: 2px 9px; border-radius: 999px;
+  background: rgba(10,14,40,0.6); border: 2px solid currentColor;
+  font-size: 13px; font-weight: 900; white-space: nowrap;
+  will-change: transform;
+}
+.gtag b { color: #fff; margin-left: 4px; }
+
+#countdown {
+  position: absolute; left: 50%; top: 38%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(90px, 30vw, 170px); font-weight: 900; font-style: italic;
+  color: #fff; text-shadow: 0 6px 0 rgba(0,0,0,0.35), 0 0 30px rgba(63,169,255,0.8);
+}
+#countdown.tick { animation: cd 0.9s ease-out; }
+@keyframes cd { from { transform: translate(-50%, -50%) scale(1.6); opacity: 0.2; } 30% { opacity: 1; } }
+
+#stampLayer {
+  position: fixed; left: 0; right: 0; top: calc(max(12px, env(safe-area-inset-top)) + 64px);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  pointer-events: none; z-index: 30;
+}
+.stampPop {
+  font-weight: 900; font-size: 18px;
+  background: rgba(10,14,40,0.85); border: 2px solid currentColor; border-radius: 999px;
+  padding: 5px 14px; animation: stampIn 2.4s ease-out forwards;
+}
+.stampPop span { color: #fff; margin-left: 6px; font-size: 22px; }
+@keyframes stampIn {
+  0% { transform: scale(0.4); opacity: 0; } 10% { transform: scale(1.1); opacity: 1; }
+  20% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); }
+}
+
+#mpConn {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 40;
+  background: var(--red); color: #fff; font-weight: 900; font-size: 13px;
+  padding: 6px 14px; border-radius: 999px;
+}
+#stampBar { flex-wrap: nowrap; gap: 5px; }
+#stampBar button { font-size: 13px; padding: 6px 8px; }

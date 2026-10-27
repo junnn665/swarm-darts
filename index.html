@@ -6,6 +6,13 @@
   <title>SWARM DARTS | 中濱Games</title>
   <meta name="description" content="ダーツの群れになってボードへ突っ込め！ゲートで本数を増やして、一斉に突き刺してスコアを稼ぐ3Dゲーム。">
   <meta name="theme-color" content="#0b1026">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="SWARM DARTS">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;800;900&display=swap" rel="stylesheet">
@@ -27,15 +34,19 @@
     <div class="brand"><span class="brand-mark">◆</span>中濱Games</div>
     <h1 class="title"><span>SWARM</span><span>DARTS</span></h1>
     <p class="sub">ダーツの群れで、ボードを埋めつくせ！</p>
-    <button id="btnStart" class="btn primary big">スタート</button>
+    <button id="btnStart" class="btn primary big">ひとりで</button>
+    <div class="mpRow">
+      <button id="btnMpCreate" class="btn vs">👥 部屋を作る</button>
+      <button id="btnMpJoin" class="btn vs">🔢 番号で参加</button>
+    </div>
     <div class="homeInfo">
       <div>STAGE<b id="homeStage">1</b></div>
       <div>ベスト<b id="homeBest">0</b></div>
     </div>
     <button id="btnReset" class="link hidden">ステージ1からやり直す</button>
     <div class="howto">
-      <p>👆 左右スワイプで<b class="blue">青いゲート</b>をくぐって本数アップ</p>
-      <p>🟥 赤いブロックに当たると本数が減る</p>
+      <p>👆 上下左右スワイプで<b class="blue">青いゲート</b>へ</p>
+      <p>🟥 赤いゲートやトゲに当たると本数が減る</p>
       <p>🎯 最後は上下左右で<b>ボードのど真ん中</b>を狙え</p>
     </div>
     <button id="btnSound" class="iconbtn" aria-label="サウンド切り替え">🔊</button>
@@ -51,6 +62,10 @@
     </div>
     <div id="countTag">1</div>
     <div id="aimHint" class="hidden">🎯 ど真ん中を狙え！</div>
+    <ol id="raceRank" class="hidden"></ol>
+    <div id="ghostTags"></div>
+    <div id="stampBar" class="stamps hidden"></div>
+    <div id="countdown" class="hidden"></div>
   </div>
 
   <!-- リザルト -->
@@ -74,10 +89,76 @@
     </div>
   </div>
 
+  <!-- 対戦：部屋を作る -->
+  <div id="mpCreate" class="overlay mp hidden">
+    <div class="card">
+      <div class="mpTitle">👥 部屋を作る</div>
+      <label class="field"><span>なまえ</span><input id="mpNameC" maxlength="10" autocomplete="off" placeholder="なまえ"></label>
+      <div class="label">むずかしさ</div>
+      <div class="seg" id="mpLevelSegC"></div>
+      <p class="mpMsg" id="mpCreateMsg"></p>
+      <button id="mpCreateGo" class="btn primary">作る</button>
+      <button class="link" data-mpback>もどる</button>
+    </div>
+  </div>
+
+  <!-- 対戦：番号で参加 -->
+  <div id="mpJoin" class="overlay mp hidden">
+    <div class="card">
+      <div class="mpTitle">🔢 番号で参加</div>
+      <label class="field"><span>部屋番号</span><input id="mpCode" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="1234"></label>
+      <label class="field"><span>なまえ</span><input id="mpNameJ" maxlength="10" autocomplete="off" placeholder="なまえ"></label>
+      <p class="mpMsg" id="mpJoinMsg"></p>
+      <button id="mpJoinGo" class="btn primary">参加する</button>
+      <button class="link" data-mpback>もどる</button>
+    </div>
+  </div>
+
+  <!-- 対戦：待合室 -->
+  <div id="mpLobby" class="overlay mp hidden">
+    <div class="card">
+      <div class="label">部屋番号</div>
+      <div class="tiles" id="mpTiles"></div>
+      <div class="invite">
+        <div id="mpQr" class="qr"></div>
+        <div class="inviteBtns">
+          <button id="mpCopy" class="btn ghost">🔗 リンクをコピー</button>
+          <button id="mpShareLink" class="btn ghost">📤 招待を送る</button>
+        </div>
+      </div>
+      <div class="label">むずかしさ</div>
+      <div class="seg" id="mpLevelSeg"></div>
+      <div class="label">参加者 <b id="mpCount">1人</b></div>
+      <ul id="mpPlayers" class="plist"></ul>
+      <p class="mpMsg info" id="mpLobbyMsg"></p>
+      <button id="mpStart" class="btn primary">スタート</button>
+      <button id="mpLeave" class="link">部屋を出る</button>
+    </div>
+  </div>
+
+  <!-- 対戦：結果 -->
+  <div id="mpResult" class="overlay mp hidden">
+    <div class="card">
+      <div id="mpResTitle">結果</div>
+      <div id="mpResSub" class="label"></div>
+      <ol id="mpRank" class="plist rank"></ol>
+      <div class="stamps" id="mpStampsR"></div>
+      <p class="mpMsg info" id="mpResMsg"></p>
+      <button id="mpAgain" class="btn primary">もう一回</button>
+      <div class="row">
+        <button id="mpToLobby" class="btn ghost">むずかしさを変える</button>
+        <button id="mpLeave2" class="btn ghost">部屋を出る</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mpConn" class="hidden">通信が切れています…</div>
+  <div id="stampLayer"></div>
   <div id="fx"></div>
   <div id="flash"></div>
   <div id="loading">読み込み中…</div>
 
+  <script src="lib/qrcode.min.js"></script>
   <script type="module" src="main.js"></script>
 </body>
 </html>
