@@ -362,6 +362,7 @@ function buildBoard() {
   );
   glow.position.z = -0.6;
   board.add(glow);
+  board.add(bonusGroup);
   board.position.y = BOARD_Y;
   scene.add(board);
 }
@@ -374,10 +375,142 @@ function scoreAt(x, y) {
   let a = Math.atan2(x, y); // 上が0、時計回り
   a = ((a + Math.PI / 20) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
   const base = SECTORS[Math.floor(a / (Math.PI / 10)) % 20];
-  if (r >= RING.triIn && r < RING.triOut) return { pts: base * 3, kind: 'triple' };
-  if (r >= RING.dblIn) return { pts: base * 2, kind: 'double' };
-  return { pts: base, kind: 'single' };
+  if (r >= RING.triIn && r < RING.triOut) return { pts: base * 3, kind: 'triple', num: base };
+  if (r >= RING.dblIn) return { pts: base * 2, kind: 'double', num: base };
+  return { pts: base, kind: 'single', num: base };
 }
+
+// ---------- ボードのボーナス ----------
+// sector: 光る数字（その数字に刺さると ×5 / ×10）
+// star:   ボードを回る ⭐（刺さると ×5）
+// skulls: ドクロのマス（刺さると 1本 -100点）
+// さらに、当たった数字の種類が多いと全体に「ばらまきボーナス」
+const STAR_MULT = 5, SKULL_PTS = -100;
+const BON = { num: 20, mult: 5, si: 0, star: null, skulls: [], starA: 0, wedge: null, starMesh: null };
+const bonusGroup = new THREE.Group();
+
+const skullTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a0610'; g.beginPath(); g.arc(64, 64, 63, 0, 7); g.fill();
+  g.fillStyle = '#d4183a'; g.beginPath(); g.arc(64, 64, 56, 0, 7); g.fill();
+  g.fillStyle = '#fff';
+  g.beginPath(); g.arc(64, 56, 30, 0, 7); g.fill();
+  g.fillRect(46, 66, 36, 24);
+  g.fillStyle = '#2a0610';
+  g.beginPath(); g.arc(52, 56, 9, 0, 7); g.fill();
+  g.beginPath(); g.arc(76, 56, 9, 0, 7); g.fill();
+  g.beginPath(); g.moveTo(64, 64); g.lineTo(59, 74); g.lineTo(69, 74); g.closePath(); g.fill();
+  for (const x of [55, 64, 73]) g.fillRect(x - 1.5, 80, 3, 10);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+const skullMat = new THREE.MeshBasicMaterial({ map: skullTex, transparent: true });
+skullMat.userData.keep = true;
+const starMat = new THREE.MeshStandardMaterial({ color: 0xffd23d, emissive: 0xffa000, emissiveIntensity: 0.9, metalness: 0.4, roughness: 0.3 });
+starMat.userData.keep = true;
+const starZoneMat = new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.28, depthWrite: false });
+starZoneMat.userData.keep = true;
+const starGeo = (() => {
+  const sh = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? 0.38 : 0.9, a = Math.PI / 2 + (i * Math.PI) / 5;
+    if (i === 0) sh.moveTo(Math.cos(a) * r, Math.sin(a) * r); else sh.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  sh.closePath();
+  return new THREE.ExtrudeGeometry(sh, { depth: 0.22, bevelEnabled: true, bevelThickness: 0.06, bevelSize: 0.06, bevelSegments: 2 });
+})();
+
+function labelSprite(text, bg, fg = '#2a1600') {
+  const c = document.createElement('canvas'); c.width = 320; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = bg;
+  g.beginPath(); g.roundRect(6, 14, 308, 100, 50); g.fill();
+  g.lineWidth = 8; g.strokeStyle = '#fff'; g.stroke();
+  g.fillStyle = fg;
+  g.font = '900 72px "M PLUS Rounded 1c", sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, 160, 68);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t }));
+  sp.scale.set(4.6, 1.84, 1);
+  return sp;
+}
+
+function setupBonuses(s) {
+  bonusGroup.traverse((o) => {
+    if (o.geometry && o.geometry !== starGeo) o.geometry.dispose();
+    if (o.material && !o.material.userData.keep) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+  });
+  bonusGroup.clear();
+  const seg = Math.PI / 10;
+  // 1) 光る数字
+  BON.si = Math.floor(rng() * 20);
+  BON.num = SECTORS[BON.si];
+  BON.mult = s < 3 ? 3 : s < 7 ? 5 : 10;
+  const th = Math.PI / 2 - BON.si * seg;   // ボード上での角度（上が 90°、時計回りに数字が並ぶ）
+  BON.th = th;
+  BON.wedge = new THREE.Mesh(
+    new THREE.RingGeometry(BOARD_R * RING.bullOut, BOARD_R, 32, 1, th - seg / 2, seg),
+    new THREE.MeshBasicMaterial({ color: 0xffd23d, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false })
+  );
+  BON.wedge.position.z = 0.05;
+  bonusGroup.add(BON.wedge);
+  const lab = labelSprite(`${BON.num} ×${BON.mult}`, '#ffd23d');
+  lab.position.set(Math.cos(th) * BOARD_R * 1.58, Math.sin(th) * BOARD_R * 1.58, 0.6);
+  bonusGroup.add(lab);
+  // 2) 回る星
+  BON.star = s >= 2 ? { r: 3.3, a0: rng() * Math.PI * 2, w: (rng() < 0.5 ? -1 : 1) * (0.7 + Math.min(s, 10) * 0.04), hit: 1.15 } : null;
+  BON.starA = BON.star ? BON.star.a0 : 0;
+  BON.starMesh = null;
+  if (BON.star) {
+    const grp = new THREE.Group();
+    const zone = new THREE.Mesh(new THREE.CircleGeometry(BON.star.hit, 40), starZoneMat);
+    zone.position.z = 0.06;
+    const st = new THREE.Mesh(starGeo, starMat);
+    st.position.z = 0.15;
+    st.castShadow = true;
+    grp.add(zone, st);
+    grp.userData.star = st;
+    bonusGroup.add(grp);
+    BON.starMesh = grp;
+  }
+  // 3) ドクロ（1つめは光る数字の通り道に置いて、ギリギリを狙わせる）
+  BON.skulls = [];
+  const nk = s >= 3 ? Math.min(1 + Math.floor((s - 3) / 3), 3) : 0;
+  for (let k = 0; k < nk; k++) {
+    let a, rr;
+    if (k === 0) { a = th; rr = rng() < 0.5 ? 2.5 : 4.7; }
+    else { a = rng() * Math.PI * 2; rr = 2 + rng() * 3.4; }
+    const sk = { x: Math.cos(a) * rr, y: Math.sin(a) * rr, r: 0.8 };
+    BON.skulls.push(sk);
+    const m = new THREE.Mesh(new THREE.CircleGeometry(sk.r, 40), skullMat);
+    m.position.set(sk.x, sk.y, 0.07);
+    bonusGroup.add(m);
+  }
+}
+
+function starXY() {
+  if (!BON.star) return null;
+  return { x: Math.cos(BON.starA) * BON.star.r, y: Math.sin(BON.starA) * BON.star.r };
+}
+
+// ボード座標（中心が 0,0）で 1 本ぶんの点数
+function scoreDart(x, y, sp) {
+  const res = scoreAt(x, y);
+  if (res.kind === 'miss') return res;
+  for (const k of BON.skulls) if (Math.hypot(x - k.x, y - k.y) < k.r) return { ...res, pts: SKULL_PTS, skull: true };
+  let pts = res.pts, sector = false, star = false;
+  if (res.num === BON.num) {
+    // 小さい数字が光っても狙う価値があるように、最低 10 点として計算
+    const ring = res.kind === 'triple' ? 3 : res.kind === 'double' ? 2 : 1;
+    pts = Math.max(res.num, 10) * ring * BON.mult;
+    sector = true;
+  }
+  if (sp && Math.hypot(x - sp.x, y - sp.y) < BON.star.hit) { pts *= STAR_MULT; star = true; }
+  return { ...res, pts, sector, star };
+}
+const varietyMult = (n) => (n >= 20 ? 3 : n >= 15 ? 2.5 : n >= 10 ? 1.5 : 1);
 
 // ---------- コース ----------
 const course = new THREE.Group();
@@ -429,6 +562,8 @@ const gateEdgeGood = new THREE.MeshStandardMaterial({ color: 0x2f8dff, transpare
 const gateEdgeBad = new THREE.MeshStandardMaterial({ color: 0xff3d55, transparent: true, opacity: 0.85, emissive: 0x7a0a1e });
 
 function isGood(op) { return op.t === '+' || op.t === '×'; }
+function isSpread(op) { return op.t === 'wide' || op.t === 'tight'; }
+const gateEdgeSpread = new THREE.MeshStandardMaterial({ color: 0xa35cff, transparent: true, opacity: 0.85, emissive: 0x3a0a7a });
 function makeOp(s, good) {
   const k = 1 + (s - 1) * 0.6;
   if (good) {
@@ -444,6 +579,7 @@ function applyOp(op, c) {
     case '+': r = c + op.v; break;
     case '-': r = c - op.v; break;
     case '×': r = c * op.v; break;
+    case 'wide': case 'tight': r = c; break;
     default: r = Math.floor(c / op.v);
   }
   return clamp(r, 0, 1e18);
@@ -452,12 +588,21 @@ function applyOp(op, c) {
 function gateTexture(op) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 212;
   const g = c.getContext('2d');
-  const good = isGood(op);
+  const good = isGood(op), spread = isSpread(op);
   const grd = g.createLinearGradient(0, 0, 0, 212);
-  grd.addColorStop(0, good ? 'rgba(80,185,255,0.9)' : 'rgba(255,80,100,0.9)');
-  grd.addColorStop(1, good ? 'rgba(30,90,255,0.5)' : 'rgba(190,20,60,0.5)');
+  grd.addColorStop(0, spread ? 'rgba(180,110,255,0.9)' : good ? 'rgba(80,185,255,0.9)' : 'rgba(255,80,100,0.9)');
+  grd.addColorStop(1, spread ? 'rgba(100,30,200,0.5)' : good ? 'rgba(30,90,255,0.5)' : 'rgba(190,20,60,0.5)');
   g.fillStyle = grd; g.fillRect(0, 0, 256, 320);
   g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 10; g.strokeRect(5, 5, 246, 202);
+  if (spread) {
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff';
+    g.font = '900 78px "M PLUS Rounded 1c", sans-serif';
+    g.fillText(op.t === 'wide' ? 'ワイド' : 'ギュッ', 128, 92);
+    g.font = '900 34px "M PLUS Rounded 1c", sans-serif';
+    g.fillText(op.t === 'wide' ? '← 群れが広がる →' : '→ 群れがまとまる ←', 128, 160);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
   const label = op.t + fmtJP(op.v);
   const fs = label.length <= 3 ? 112 : label.length <= 4 ? 90 : 70;
   g.font = `900 ${fs}px "M PLUS Rounded 1c", sans-serif`;
@@ -477,7 +622,7 @@ function makeGate(z, ops) {
   const planes = [];
   ops.forEach((op, i) => {
     const face = new THREE.MeshBasicMaterial({ map: gateTexture(op), transparent: true, depthWrite: false });
-    const edge = (isGood(op) ? gateEdgeGood : gateEdgeBad).clone();
+    const edge = (isSpread(op) ? gateEdgeSpread : isGood(op) ? gateEdgeGood : gateEdgeBad).clone();
     const pl = new THREE.Mesh(new THREE.BoxGeometry(2.9, 2.4, 0.3), [edge, edge, edge, edge, face, face]);
     const p = gateSlot(i);
     pl.position.set(p.x, p.y, 0);
@@ -580,6 +725,8 @@ function buildStage(s, seed = (Math.random() * 2 ** 31) | 0) {
     const ops = [i === 0 ? { t: '+', v: cri(8, 14) } : makeOp(s, true)];
     const nBad = i === 0 ? 1 : cri(1, 2);
     for (let k = 0; k < 3; k++) ops.push(k < nBad ? makeOp(s, false) : i === 0 ? { t: '+', v: cri(2, 6) } : makeOp(s, true));
+    // ワイド / ギュッ（群れの広がりを変えるゲート）
+    if (s >= 2 && i > 0 && rng() < 0.35) ops[1] = { t: rng() < 0.65 ? 'wide' : 'tight' };
     for (let k = ops.length - 1; k > 0; k--) { const j = Math.floor(rng() * (k + 1)); [ops[k], ops[j]] = [ops[j], ops[k]]; }
     gates.push(makeGate(z, ops));
     best = Math.max(...ops.map((op) => applyOp(op, best)));
@@ -591,6 +738,7 @@ function buildStage(s, seed = (Math.random() * 2 ** 31) | 0) {
   }
   approachZ = z + 6;
   boardZ = approachZ - APPROACH_LEN;
+  setupBonuses(s);
   board.position.set(0, BOARD_Y, boardZ);
   // 空中に浮かぶコース（ボードの手前で途切れて、そこからダイブ）
   const startZ = 16, endZ = approachZ - 4;
@@ -643,12 +791,12 @@ const S = {
   phase: 'home', stage: store.get('sd_stage', 1), count: 1,
   x: 0, y: 0.4, z: 0, tx: 0, ty: 0.4, prevX: 0, bank: 0,
   darts: [], debris: [], stuck: [], time: 0, timer: 0,
-  score: 0, result: null, versus: false, startAt: 0,
+  score: 0, result: null, versus: false, startAt: 0, spread: 1, spreadCur: 1,
 };
 let best = store.get('sd_best', 0);
 let net = null;   // 対戦（net.js）
 
-function swarmRadius() { return LAYOUT * Math.cbrt(Math.max(1, S.darts.length)); }
+function swarmRadius() { return LAYOUT * Math.cbrt(Math.max(1, S.darts.length)) * S.spreadCur; }
 
 function syncVisible(withDebris = true) {
   const want = Math.min(MAXV, Math.max(0, Math.floor(S.count)));
@@ -729,7 +877,7 @@ function resetRun(level, seed) {
   audio();
   buildStage(level, seed);
   S.count = 1; S.darts = []; S.debris = []; S.stuck = []; S.result = null; S.score = 0;
-  S.x = S.tx = 0; S.y = S.ty = ROW_Y[1]; S.z = 0; S.prevX = 0; S.bank = 0;
+  S.x = S.tx = 0; S.y = S.ty = ROW_Y[1]; S.z = 0; S.prevX = 0; S.bank = 0; S.spread = S.spreadCur = 1;
   syncVisible(false);
   show('home', false); show('result', false); show('hud', true); show('aimHint', false);
   camera.position.set(0, 3.4, 9);
@@ -825,19 +973,34 @@ function doHit() {
   S.timer = 0;
   let sum = 0, bulls = 0;
   const tally = { bull: 0, triple: 0, double: 0, single: 0, miss: 0 };
+  const bc = { sector: 0, star: 0, skull: 0 };
+  const nums = new Set();
+  const sp = starXY();
   for (const d of S.darts) {
-    const wx = S.x + d.ox, wy = S.y + d.oy;
-    const res = scoreAt(wx, wy - BOARD_Y);
+    const wx = S.x + d.ox * S.spreadCur, wy = S.y + d.oy * S.spreadCur;
+    const res = scoreDart(wx, wy - BOARD_Y, sp);
     sum += res.pts;
     tally[res.kind]++;
     if (res.kind === 'bull') bulls++;
+    if (res.skull) bc.skull++;
+    else if (res.num) nums.add(res.num);
+    if (res.sector) bc.sector++;
+    if (res.star) bc.star++;
     if (res.kind === 'miss') spawnDebris(wx, wy, boardZ + 0.6);
     else S.stuck.push({ x: wx, y: wy, z: boardZ + 0.36 + Math.random() * 0.12, rx: rand(-0.08, 0.08), ry: rand(-0.08, 0.08), rz: rand(0, 6.28) });
   }
   const n = Math.max(1, S.darts.length);
   const avg = sum / n;
-  S.score = Math.round(avg * S.count);
-  S.result = { avg, bullRate: bulls / n, tally, count: S.count };
+  const vm = varietyMult(nums.size);
+  S.score = Math.max(0, Math.round(avg * S.count * vm));
+  S.result = { avg, bullRate: bulls / n, tally, count: S.count, bonus: { ...bc, n, variety: nums.size, vm } };
+  // ボーナスの演出
+  const notes = [];
+  if (bc.sector) notes.push([`${BON.num}×${BON.mult} ヒット！`, 'gold']);
+  if (bc.star) notes.push([`⭐×5 ${bc.star}本！`, 'gold']);
+  if (vm > 1) notes.push([`ばらまき ${nums.size}種 ×${vm}`, 'good']);
+  if (bc.skull) notes.push([`💀 ドクロ ${bc.skull}本…`, 'bad']);
+  notes.forEach(([txt, cls], i) => setTimeout(() => popup(txt, cls, window.innerWidth / 2, window.innerHeight * (0.62 + i * 0.07)), 700 + i * 260));
   S.darts = [];
   sfx.thud();
   flash('rgba(255,255,255,0.8)');
@@ -867,6 +1030,15 @@ function showResult() {
   $('resCount').textContent = dead ? '0' : fmtJP(S.result.count);
   $('resAvg').textContent = dead ? '0' : S.result.avg.toFixed(1);
   $('resBull').textContent = dead ? '0%' : Math.round(S.result.bullRate * 100) + '%';
+  const bo = !dead && S.result.bonus;
+  const chips = [];
+  if (bo) {
+    if (bo.sector) chips.push(`<span class="chip gold">${BON.num}×${BON.mult} ${Math.round(bo.sector / bo.n * 100)}%</span>`);
+    if (bo.star) chips.push(`<span class="chip gold">⭐×5 ${Math.round(bo.star / bo.n * 100)}%</span>`);
+    chips.push(`<span class="chip ${bo.vm > 1 ? 'good' : ''}">ばらまき ${bo.variety}種${bo.vm > 1 ? ' ×' + bo.vm : ''}</span>`);
+    if (bo.skull) chips.push(`<span class="chip bad">💀 ${Math.round(bo.skull / bo.n * 100)}%</span>`);
+  }
+  $('resBonus').innerHTML = chips.join('');
   show('resBadge', !dead && S.score >= 1e10);
   $('btnNext').textContent = clear ? '次のステージへ' : 'リトライ';
   $('btnNext').dataset.clear = clear ? '1' : '';
@@ -974,6 +1146,13 @@ function update(dt) {
           burst(sp.x, sp.y, g.z, isGood(op) ? 0x6cc6ff : 0xff4b5c, 46, 9, 12);
           if (isGood(op)) fovKick = 9;
           if (S.versus && net) net.onGate(op);
+          if (isSpread(op)) {
+            S.spread = op.t === 'wide' ? Math.min(2.6, S.spread * 1.5) : Math.max(0.6, S.spread / 1.5);
+            popAtSwarm(op.t === 'wide' ? 'ワイド！' : 'ギュッ！', 'good');
+            sfx.good();
+            flash('rgba(163,92,255,0.55)');
+            continue;
+          }
           const next = applyOp(op, S.count);
           changeCount(next, op.t + fmtJP(op.v), isGood(op));
         }
@@ -998,7 +1177,10 @@ function update(dt) {
       }
       if (S.phase === 'run' && S.z <= approachZ) {
         S.phase = 'approach';
+        if (BON.star) BON.starA = BON.star.a0;   // 全員同じタイミングで星が回り始める
+        $('aimHint').textContent = `🎯 ${BON.num}が×${BON.mult}` + (BON.star ? ' ⭐×5' : '') + (BON.skulls.length ? ' 💀注意' : '');
         show('aimHint', true);
+        popup(`${BON.num} が ×${BON.mult}！`, 'gold', window.innerWidth / 2, window.innerHeight * 0.3);
       }
     } else {
       S.tx = clamp(S.tx, -BOARD_R, BOARD_R);
@@ -1008,6 +1190,7 @@ function update(dt) {
   }
 
   // 群れの移動
+  S.spreadCur += (S.spread - S.spreadCur) * damp(5, dt);
   S.x += (S.tx - S.x) * damp(14, dt);
   S.y += (S.ty - S.y) * damp(10, dt);
   const vx = (S.x - S.prevX) / Math.max(dt, 1e-4);
@@ -1025,6 +1208,13 @@ function update(dt) {
     }
   }
   for (const o of obstacles) animObstacle(o, t);
+  if (BON.starMesh) {
+    if (S.phase !== 'hit' && S.phase !== 'result') BON.starA += BON.star.w * dt;
+    const sp = starXY();
+    BON.starMesh.position.set(sp.x, sp.y, 0);
+    BON.starMesh.userData.star.rotation.z += dt * 2.5;
+  }
+  if (BON.wedge) BON.wedge.material.opacity = 0.6 + Math.sin(t * 6) * 0.25;
 
   if (S.phase === 'home') {
     S.z = 0; S.tx = Math.sin(t * 0.7) * 1.2; S.ty = 0.9 + Math.sin(t * 1.1) * 0.3;
@@ -1037,7 +1227,7 @@ function update(dt) {
     d.ox += (d.tx - d.ox) * kOff;
     d.oy += (d.ty - d.oy) * kOff;
     d.oz += (d.tz - d.oz) * kOff;
-    pv.set(S.x + d.ox, S.y + d.oy + Math.sin(t * 6 + d.ph) * 0.04, S.z + d.oz);
+    pv.set(S.x + d.ox * S.spreadCur, S.y + d.oy * S.spreadCur + Math.sin(t * 6 + d.ph) * 0.04, S.z + d.oz * S.spreadCur);
     eul.set(Math.sin(t * 3 + d.ph) * 0.04, Math.cos(t * 3 + d.ph) * 0.04, S.bank + t * 3 + d.ph);
     q.setFromEuler(eul);
     m4.compose(pv, q, one);
@@ -1088,7 +1278,7 @@ function update(dt) {
       st.x += (g.x - st.x) * damp(8, dt);
       st.y += (g.y - st.y) * damp(8, dt);
       st.z += (gz - st.z) * damp(10, dt);
-      const rad = LAYOUT * Math.cbrt(Math.min(MAXV, Math.max(1, g.c)));
+      const rad = LAYOUT * Math.cbrt(Math.min(MAXV, Math.max(1, g.c))) * (g.s || 1);
       const vis = Math.min(GPER, Math.max(1, Math.round(Math.cbrt(g.c) * 4)));
       const col = new THREE.Color(g.color);
       for (let i = 0; i < vis && gn < GMAX; i++) {
@@ -1244,7 +1434,7 @@ net = initNet({
   stamp,
   live() {
     if (!S.versus || !(S.phase === 'count' || S.phase === 'run' || S.phase === 'approach')) return null;
-    return { x: Math.round(S.x * 100) / 100, y: Math.round(S.y * 100) / 100, z: Math.round(S.z * 10) / 10, c: S.count, ph: S.phase };
+    return { x: Math.round(S.x * 100) / 100, y: Math.round(S.y * 100) / 100, z: Math.round(S.z * 10) / 10, c: S.count, ph: S.phase, s: Math.round(S.spreadCur * 100) / 100 };
   },
   showHome(on) { show('home', on); if (!on) show('result', false); },
   toHome() { exitVersus(); goHome(); },
@@ -1254,7 +1444,7 @@ net = initNet({
 });
 
 // テスト用フック（?debug のときだけ）
-if (location.search.includes('debug')) window.__sd = { S, get gates() { return gates; }, get obstacles() { return obstacles; }, applyOp, gateSlot };
+if (location.search.includes('debug')) window.__sd = { S, get gates() { return gates; }, get obstacles() { return obstacles; }, applyOp, gateSlot, BON, scoreAt, scoreDart, starXY, buildStage, BOARD_Y };
 
 // フォント読み込み後にテクスチャを作る
 (async () => {

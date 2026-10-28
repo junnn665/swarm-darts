@@ -375,3 +375,16 @@ input { user-select: text; -webkit-user-select: text; }
 }
 #stampBar { flex-wrap: nowrap; gap: 5px; }
 #stampBar button { font-size: 13px; padding: 6px 8px; }
+
+/* ---------- ボーナス ---------- */
+.howto .gold { color: var(--gold); }
+.bonusList { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 8px; }
+.chip {
+  font-size: 12px; font-weight: 900; padding: 4px 10px; border-radius: 999px;
+  background: rgba(255,255,255,0.1); color: #dfe6ff;
+}
+.chip.gold { background: rgba(255,210,61,0.2); color: var(--gold); }
+.chip.good { background: rgba(63,169,255,0.22); color: #9fd8ff; }
+.chip.bad { background: rgba(255,75,92,0.22); color: #ff8a96; }
+#aimHint { font-size: 16px; }
+#aimHint { font-size: 15px; padding: 8px 14px; white-space: normal; text-align: center; width: max-content; max-width: calc(100vw - 24px); }
